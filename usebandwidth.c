@@ -37,7 +37,7 @@
 
 #define PORTBASE 55555
 
-#define MIN_PACKET_SIZE 10
+#define MIN_PACKET_SIZE 2
 
 #define MAX_IPv4_ADDRESS_LENGTH 15
 
@@ -55,11 +55,8 @@ int DEBUG = FALSE;
 
 void usage()
 {
-  fprintf(stderr, "%s: not enough arguments\n", progname);
-  fprintf(stderr, "\tusage:\n");
-  fprintf(stderr, "\t\t%s basenetwork startsubnet endsubnet\n", progname);
-  fprintf(stderr, "\texample:\n");
-  fprintf(stderr, "\t\t%s 192.168.1 1 254\n", progname);
+  fprintf(stderr, "usage:\n");
+  fprintf(stderr, "\t%s -i IPv4 address [ -p UDP_port# ] [ -s packet_size ] [ -c count ] [ -n nanosecond ] [ -d ]\n", progname);
 
   return;
 }
@@ -86,6 +83,53 @@ char *basename(filespec)
 
 /*****************************************************************************/
 
+void increment_counter(packet, width)
+	char	*packet;
+	int	width;
+{
+	int	i;
+	char	c;
+
+	i = width - 1;
+
+	while (i >= 0) {
+		c = packet[i];
+
+		c++;
+
+		if (c <= '9') {
+			packet[i] = c;
+
+			break;
+		}
+
+		packet[i] = '0';
+
+		i--;
+	}
+
+	return;
+}
+
+/*****************************************************************************/
+
+void display_packet(packet, packet_size)
+	char	*packet;
+	int	packet_size;
+{
+	int	i;
+
+	for (i = 0; i < packet_size; i++) {
+		putchar(packet[i]);
+	}
+	putchar('\n');
+	
+
+	return;
+}
+
+/*****************************************************************************/
+
 int main(argc, argv)
   int   argc;
   char *argv[];
@@ -108,6 +152,13 @@ int main(argc, argv)
 	int			nanosleep_retcode;
 
 	progname = basename(argv[0]);
+
+	if (argc == 2) {
+		if (strcmp(argv[1], "--help") == 0) {
+			usage();
+			exit(2);
+		}
+	}
 
 	ipv4_address = NULL;
 	dest_port_number = 55555;
@@ -211,10 +262,7 @@ int main(argc, argv)
 		}
 	}
 
-	for (i = 0; i < packet_size; i++) {
-		putchar(packet[i]);
-	}
-	putchar('\n');
+	display_packet(packet, packet_size);
 
 	sock = socket(PF_INET, SOCK_DGRAM, 0);
 
@@ -232,6 +280,8 @@ int main(argc, argv)
 	for (i = 0; i < count; i++) {
 		if (DEBUG) {
 			printf("i=%d\n", i);
+
+			display_packet(packet, packet_size);
 		}
 
 		destaddress.sin_family      = AF_INET;
@@ -266,6 +316,8 @@ int main(argc, argv)
 				perror("nanosleep had an error");
 			}
 		}
+
+		increment_counter(packet, MIN_PACKET_SIZE);
 	}
 
 	close(sock);
