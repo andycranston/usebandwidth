@@ -1,5 +1,5 @@
 /*
- *  @(!--#) @(#) userbandwidth.c, version 001, 24-november-2024
+ *  @(!--#) @(#) userbandwidth.c, version 005, 24-november-2024
  *
  *  use out outgoing bandwidth by sending dummy UDP packages to a specified UDP IPv4 address and port number
  *
@@ -18,6 +18,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <time.h>
 #include <errno.h>
 
 /*****************************************************************************/
@@ -26,15 +27,19 @@
  *  defines
  */
 
+#ifndef TRUE
+#define TRUE 1
+#endif
+
+#ifndef FALSE
+#define FALSE 0
+#endif
+
 #define PORTBASE 55555
 
 #define MIN_PACKET_SIZE 10
 
 #define MAX_IPv4_ADDRESS_LENGTH 15
-
-#define FAILSAFE_MAX 256
-
-#define MESSAGE_TEXT "This UDP packet sent by program fillarp by Andy Cranston (andy@cranstonhub.com) - https://github.com/andycranston/fillarp"
 
 /*****************************************************************************/
 
@@ -83,30 +88,31 @@ int main(argc, argv)
   int   argc;
   char *argv[];
 {
-	char		*ipv4_address;
-	int		dest_port_number;
-	int		count;
-	int		packet_size;
-	int		arg;
-	unsigned char	*packet;
-	int       sock;
-	struct    sockaddr_in   destaddress;
-	socklen_t addresssize;
-	char     *basenetwork;
-	int       startsubnet;
-	int       endsubnet;
-	char      ipaddress[MAX_IPv4_ADDRESS_LENGTH+sizeof(char)];
-	int       i;
-	int       failsafecounter;
-	int       messagetextlength;
-	int       bytes_sent;
+	char			*ipv4_address;
+	int			dest_port_number;
+	int			packet_size;
+	int			count;
+	int			arg;
+	char			*packet;
+	time_t			pausesecond;
+	long			pausenanosecond;
+	struct timespec		pause;
+	int			pauseflag;
+	int			sock;
+	struct sockaddr_in	destaddress;
+	socklen_t		addresssize;
+	int			i;
+	int			bytes_sent;
+	int			nanosleep_retcode;
 
 	progname = basename(argv[0]);
 
 	ipv4_address = NULL;
 	dest_port_number = 55555;
-	count = 10;
 	packet_size = 1000;
+	count = 10;
+	pausesecond = (time_t)0;
+	pausenanosecond = (long)1000000;
 
 	arg = 1;
 
@@ -129,15 +135,6 @@ int main(argc, argv)
 			}
 
 			dest_port_number = atoi(argv[arg]);
-		} else if (strcmp(argv[arg], "-c") == 0) {
-			arg++;
-
-			if (arg >= argc) {
-				fprintf(stderr, "%s: expected packet count after -c command line option\n", progname);
-				exit(2);
-			}
-
-			count = atoi(argv[arg]);
 		} else if (strcmp(argv[arg], "-s") == 0) {
 			arg++;
 
@@ -147,6 +144,24 @@ int main(argc, argv)
 			}
 
 			packet_size = atoi(argv[arg]);
+		} else if (strcmp(argv[arg], "-c") == 0) {
+			arg++;
+
+			if (arg >= argc) {
+				fprintf(stderr, "%s: expected packet count after -c command line option\n", progname);
+				exit(2);
+			}
+
+			count = atoi(argv[arg]);
+		} else if (strcmp(argv[arg], "-n") == 0) {
+			arg++;
+
+			if (arg >= argc) {
+				fprintf(stderr, "%s: expected nanosecond pause value after -n command line option\n", progname);
+				exit(2);
+			}
+
+			pausenanosecond = atol(argv[arg]);
 		} else {
 			fprintf(stderr, "%s: unrecognised command line argument \"%s\"\n", progname, argv[arg]);
 			exit(2);
@@ -170,6 +185,20 @@ int main(argc, argv)
 		exit(2);
 	}
 
+	if (pausenanosecond > 999999999L) {
+		fprintf(stderr, "%s: pause nanosecond value %ld exceeds 999,999,999\n", progname, pausenanosecond);
+		exit(2);
+	}
+
+	pause.tv_sec = pausesecond;
+	pause.tv_nsec = pausenanosecond;
+
+	printf("IPv4 address: %s\n", ipv4_address);
+	printf("Destination UDP port: %d\n", dest_port_number);
+	printf("Packet size: %d\n", packet_size);
+	printf("Count: %d\n", count);
+	printf("Nanosecond: %ld\n", pausenanosecond);
+
 	for (i = 0; i < packet_size; i++) {
 		if (i < MIN_PACKET_SIZE) {
 			packet[i] = '0';
@@ -183,43 +212,55 @@ int main(argc, argv)
 	}
 	putchar('\n');
 
+	sock = socket(PF_INET, SOCK_DGRAM, 0);
+
+	if (sock == -1) {
+		fprintf(stderr, "%s: error trying to create socket\n", progname);
+		exit(2);
+	}
+
+	if (pausenanosecond != 0L) {
+		pauseflag = TRUE;
+	} else {
+		pauseflag = FALSE;
+	}
+
+	for (i = 0; i < count; i++) {
+		printf("i=%d\n", i);
+
+		destaddress.sin_family      = AF_INET;
+		destaddress.sin_port        = htons(dest_port_number);
+		destaddress.sin_addr.s_addr = inet_addr(ipv4_address);
+
+		memset(destaddress.sin_zero, '\0', sizeof(destaddress.sin_zero));
+
+		addresssize = sizeof(destaddress);
+
+		bytes_sent = sendto(sock, packet, packet_size, 0, (struct sockaddr *)&destaddress, addresssize);
+
+		if (bytes_sent == -1) {
+			perror("sendto has failed");
+		} else {
+			if (bytes_sent != packet_size) {
+				fprintf(stderr, "%s: mismatch between bytes sent and size of package (%d != %d)\n", progname, bytes_sent, packet_size);
+			}
+		}
+
+		if (pauseflag) {
+			printf("Pausing...\n");
+			printf("Sec: %ld\n", pause.tv_sec);
+			printf("Nan: %ld\n", pause.tv_nsec);
+			nanosleep_retcode = nanosleep(&pause, NULL);
+			printf("Retcode: %d\n", nanosleep_retcode);
+			if (nanosleep_retcode == -1) {
+				perror("nanosleep had an error");
+			}
+		}
+	}
+
+	close(sock);
+
 	exit(0);
-
-
-
-
-
-  printf("IPv4=%s   Port=%d   Count=%d\n", ipv4_address, dest_port_number, count);
-
-  messagetextlength = strlen(MESSAGE_TEXT);
-
-  sock = socket(PF_INET, SOCK_DGRAM, 0);
-
-  for (i = 0; i < count; i++) {
-    printf("i=%d\n", i);
-
-    destaddress.sin_family      = AF_INET;
-    destaddress.sin_port        = htons(dest_port_number);
-    destaddress.sin_addr.s_addr = inet_addr(ipv4_address);
-
-    memset(destaddress.sin_zero, '\0', sizeof(destaddress.sin_zero));
-
-    addresssize = sizeof(destaddress);
-
-    bytes_sent = sendto(sock, MESSAGE_TEXT, messagetextlength, 0, (struct sockaddr *)&destaddress, addresssize);
-
-    if (bytes_sent == -1) {
-      perror("sendto has failed");
-    } else {
-      if (bytes_sent != messagetextlength) {
-        fprintf(stderr, "%s: mismatch between bytes sent and size of package (%d != %d)\n", progname, bytes_sent, messagetextlength);
-      }
-    }
-  }
-
-  close(sock);
-
-  exit(0);
 }
 
 /**********************************************************************/
