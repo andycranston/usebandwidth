@@ -1,5 +1,5 @@
 /*
- *  @(!--#) @(#) userbandwidth.c, version 005, 24-november-2024
+ *  @(!--#) @(#) userbandwidth.c, version 006, 24-november-2024
  *
  *  use out outgoing bandwidth by sending dummy UDP packages to a specified UDP IPv4 address and port number
  *
@@ -48,6 +48,8 @@
  */
 
 char *progname;
+
+int DEBUG = FALSE;
 
 /*****************************************************************************/
 
@@ -117,7 +119,9 @@ int main(argc, argv)
 	arg = 1;
 
 	while (arg < argc) {
-		if (strcmp(argv[arg], "-i") == 0) {
+		if (strcmp(argv[arg], "-d") == 0) {
+			DEBUG = TRUE;
+		} else if (strcmp(argv[arg], "-i") == 0) {
 			arg++;
 
 			if (arg >= argc) {
@@ -226,7 +230,9 @@ int main(argc, argv)
 	}
 
 	for (i = 0; i < count; i++) {
-		printf("i=%d\n", i);
+		if (DEBUG) {
+			printf("i=%d\n", i);
+		}
 
 		destaddress.sin_family      = AF_INET;
 		destaddress.sin_port        = htons(dest_port_number);
@@ -247,11 +253,15 @@ int main(argc, argv)
 		}
 
 		if (pauseflag) {
-			printf("Pausing...\n");
-			printf("Sec: %ld\n", pause.tv_sec);
-			printf("Nan: %ld\n", pause.tv_nsec);
+			if (DEBUG) {
+				printf("Pausing...\n");
+				printf("Sec: %ld\n", pause.tv_sec);
+				printf("Nan: %ld\n", pause.tv_nsec);
+			}
 			nanosleep_retcode = nanosleep(&pause, NULL);
-			printf("Retcode: %d\n", nanosleep_retcode);
+			if (DEBUG) {
+				printf("Retcode: %d\n", nanosleep_retcode);
+			}
 			if (nanosleep_retcode == -1) {
 				perror("nanosleep had an error");
 			}
